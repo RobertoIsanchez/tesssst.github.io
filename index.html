@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Galerías base64</title>
+<style>
+  :root {
+    --bg: #eef1f4;
+    --surface: #ffffff;
+    --ink: #1b2430;
+    --muted: #5d6b7a;
+    --line: #cfd7df;
+    --accent: #0e7c86;
+    --accent-ink: #ffffff;
+    --radius: 8px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12171d;
+      --surface: #1a2129;
+      --ink: #e6ebf0;
+      --muted: #94a3b2;
+      --line: #2c3743;
+      --accent: #4fc3cc;
+      --accent-ink: #0c1318;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+    padding: 12px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 17px; margin: 0 auto 0 0; font-weight: 650; }
+  button, .btn {
+    font: inherit; color: var(--ink);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 7px 14px;
+    cursor: pointer;
+  }
+  button:hover, .btn:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  button:focus-visible, .btn:focus-visible, input:focus-visible, .thumb:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+  main { flex: 1; min-height: 0; display: grid; grid-template-columns: 240px 1fr; }
+  aside {
+    border-right: 1px solid var(--line);
+    background: var(--surface);
+    overflow-y: auto;
+    padding: 10px;
+  }
+  .g-item {
+    display: block; width: 100%; text-align: left;
+    border: 0; border-radius: var(--radius);
+    padding: 9px 12px; margin-bottom: 2px;
+  }
+  .g-item small { display: block; color: var(--muted); }
+  .g-item[aria-current="true"] { background: var(--accent); color: var(--accent-ink); }
+  .g-item[aria-current="true"] small { color: inherit; opacity: .85; }
+  section { overflow-y: auto; padding: 20px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 12px;
+  }
+  .thumb {
+    padding: 0; border: 1px solid var(--line); border-radius: var(--radius);
+    background: var(--surface); overflow: hidden; aspect-ratio: 1;
+  }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .empty {
+    max-width: 520px; margin: 10vh auto 0; text-align: center;
+    border: 2px dashed var(--line); border-radius: 14px; padding: 48px 28px;
+  }
+  .empty h2 { margin: 0 0 8px; font-size: 20px; }
+  .empty p { margin: 0 0 6px; color: var(--muted); }
+  body.dragging .empty, body.dragging section { border-color: var(--accent); }
+  body.dragging .empty { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+
+  dialog {
+    border: 1px solid var(--line); border-radius: 12px;
+    background: var(--surface); color: var(--ink);
+    padding: 20px; width: min(440px, 92vw);
+  }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  dialog h2 { margin: 0 0 14px; font-size: 18px; }
+  dialog label { display: block; margin-bottom: 12px; }
+  dialog input[type="text"] {
+    width: 100%; font: inherit; padding: 8px 10px; margin-top: 4px;
+    border: 1px solid var(--line); border-radius: var(--radius);
+    background: var(--bg); color: var(--ink);
+  }
+  dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+  #status { color: var(--muted); font-size: 13px; margin: 8px 0 0; min-height: 1.4em; }
+
+  #lightbox {
+    position: fixed; inset: 0; z-index: 10; display: none;
+    background: rgba(8,12,16,.94);
+    align-items: center; justify-content: center;
+  }
+  #lightbox.open { display: flex; }
+  #lightbox img { max-width: 92vw; max-height: 86vh; object-fit: contain; }
+  #lightbox .lb-btn {
+    position: absolute; color: #fff; border-color: rgba(255,255,255,.35);
+    background: rgba(0,0,0,.4);
+  }
+  #lb-close { top: 14px; right: 14px; }
+  #lb-prev { left: 14px; top: 50%; transform: translateY(-50%); }
+  #lb-next { right: 14px; top: 50%; transform: translateY(-50%); }
+  #lb-count {
+    position: absolute; bottom: 14px; left: 0; right: 0; text-align: center;
+    color: #cfd7df; font-size: 13px;
+  }
+  @media (max-width: 720px) {
+    main { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    aside { border-right: 0; border-bottom: 1px solid var(--line); max-height: 28vh; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Galerías base64</h1>
+  <label class="btn" tabindex="0" id="open-label">Abrir archivo
+    <input id="file-open" type="file" accept=".json,.txt,application/json,text/plain" multiple hidden>
+  </label>
+  <button id="btn-convert">Convertir imágenes</button>
+  <button id="btn-export" class="primary" disabled>Descargar JSON</button>
+</header>
+
+<main>
+  <aside id="list" aria-label="Galerías"></aside>
+  <section id="view"></section>
+</main>
+
+<dialog id="dlg">
+  <h2>Convertir imágenes a base64</h2>
+  <label>Nombre de la galería
+    <input id="conv-name" type="text" placeholder="Vacaciones">
+  </label>
+  <label>Imágenes
+    <input id="conv-files" type="file" accept="image/*" multiple>
+  </label>
+  <p id="status"></p>
+  <div class="row">
+    <button id="conv-cancel" type="button">Cancelar</button>
+    <button id="conv-ok" type="button" class="primary">Crear galería</button>
+  </div>
+</dialog>
+
+<div id="lightbox" role="dialog" aria-modal="true" aria-label="Imagen ampliada">
+  <button id="lb-close" class="lb-btn" aria-label="Cerrar">Cerrar</button>
+  <button id="lb-prev" class="lb-btn" aria-label="Anterior">Anterior</button>
+  <img id="lb-img" alt="">
+  <button id="lb-next" class="lb-btn" aria-label="Siguiente">Siguiente</button>
+  <div id="lb-count"></div>
+</div>
+
+<!--
+  Opcional: crea un archivo "galerias.js" junto a este index.html con este contenido
+  y se cargará solo al abrir la página (funciona incluso sin servidor):
+
+    window.GALERIAS = [
+      { "nombre": "Mi galería", "imagenes": ["iVBORw0KGgo...", "data:image/jpeg;base64,/9j/4AAQ..."] }
+    ];
+-->
+<script src="galerias.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  var galerias = [];
+  var actual = -1;
+  var lbIndex = 0;
+
+  var $ = function (id) { return document.getElementById(id); };
+  var list = $("list"), view = $("view");
+
+  /* ---------- Normalización de datos ---------- */
+
+  function detectarMime(b64) {
+    if (b64.indexOf("iVBOR") === 0) return "image/png";
+    if (b64.indexOf("/9j/") === 0) return "image/jpeg";
+    if (b64.indexOf("R0lGOD") === 0) return "image/gif";
+    if (b64.indexOf("UklGR") === 0) return "image/webp";
+    if (b64.indexOf("PHN2Zy") === 0 || b64.indexOf("PD94bW") === 0) return "image/svg+xml";
+    if (b64.indexOf("Qk") === 0) return "image/bmp";
+    return "image/png";
+  }
+
+  function aSrc(valor) {
+    var s = String(valor || "").replace(/\s+/g, "");
+    if (!s) return "";
+    if (s.indexOf("data:") === 0) return s;
+    return "data:" + detectarMime(s) + ";base64," + s;
+  }
+
+  function aImagen(item, i) {
+    if (typeof item === "string") return { nombre: "Imagen " + (i + 1), src: aSrc(item) };
+    if (item && typeof item === "object") {
+      var raw = item.data || item.base64 || item.src || item.imagen || "";
+      return { nombre: item.nombre || item.name || "Imagen " + (i + 1), src: aSrc(raw) };
+    }
+    return { nombre: "Imagen " + (i + 1), src: "" };
+  }
+
+  function aGaleria(g, nombrePorDefecto) {
+    var imgs = Array.isArray(g) ? g : (g.imagenes || g.images || []);
+    var nombre = Array.isArray(g) ? nombrePorDefecto : (g.nombre || g.name || nombrePorDefecto);
+    return {
+      nombre: nombre,
+      imagenes: imgs.map(aImagen).filter(function (x) { return x.src; })
+    };
+  }
+
+  // Acepta: [galerías], {galerias:[...]}, {nombre:[base64...]}, o un arreglo de strings.
+  function normalizar(datos, nombreArchivo) {
+    var salida = [];
+    if (Array.isArray(datos)) {
+      if (datos.length && (typeof datos[0] === "string")) {
+        salida.push(aGaleria(datos, nombreArchivo));
+      } else {
+        datos.forEach(function (g, i) { salida.push(aGaleria(g, "Galería " + (i + 1))); });
+      }
+    } else if (datos && Array.isArray(datos.galerias)) {
+      datos.galerias.forEach(function (g, i) { salida.push(aGaleria(g, "Galería " + (i + 1))); });
+    } else if (datos && typeof datos === "object") {
+      Object.keys(datos).forEach(function (k) { salida.push(aGaleria(datos[k], k)); });
+    }
+    return salida.filter(function (g) { return g.imagenes.length; });
+  }
+
+  function agregar(nuevas) {
+    if (!nuevas.length) return false;
+    galerias = galerias.concat(nuevas);
+    if (actual < 0) actual = 0;
+    else actual = galerias.length - nuevas.length;
+    render();
+    return true;
+  }
+
+  /* ---------- Lectura de archivos ---------- */
+
+  function leerTexto(file) {
+    return new Promise(function (ok, fail) {
+      var r = new FileReader();
+      r.onload = function () { ok(r.result); };
+      r.onerror = function () { fail(r.error); };
+      r.readAsText(file);
+    });
+  }
+
+  function leerDataURL(file) {
+    return new Promise(function (ok, fail) {
+      var r = new FileReader();
+      r.onload = function () { ok(r.result); };
+      r.onerror = function () { fail(r.error); };
+      r.readAsDataURL(file);
+    });
+  }
+
+  function nombreBase(file) { return file.name.replace(/\.[^.]+$/, ""); }
+
+  async function abrirArchivos(files) {
+    var fallos = [];
+    for (var i = 0; i < files.length; i++) {
+      var f = files[i];
+      try {
+        if (f.type.indexOf("image/") === 0) {
+          // Imagen suelta arrastrada: se convierte al vuelo.
+          var src = await leerDataURL(f);
+          agregar([{ nombre: nombreBase(f), imagenes: [{ nombre: f.name, src: src }] }]);
+          continue;
+        }
+        var texto = (await leerTexto(f)).trim();
+        var nuevas;
+        if (texto.charAt(0) === "[" || texto.charAt(0) === "{") {
+          nuevas = normalizar(JSON.parse(texto), nombreBase(f));
+        } else {
+          // Texto plano: una imagen base64 por línea.
+          var lineas = texto.split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+          nuevas = normalizar(lineas, nombreBase(f));
+        }
+        if (!agregar(nuevas)) fallos.push(f.name);
+      } catch (e) {
+        fallos.push(f.name);
+      }
+    }
+    if (fallos.length) {
+      alert("No se encontraron imágenes válidas en: " + fallos.join(", ") +
+            "\n\nFormatos aceptados: JSON con galerías, o texto con un base64 por línea.");
+    }
+  }
+
+  /* ---------- Render ---------- */
+
+  function render() {
+    list.textContent = "";
+    view.textContent = "";
+    $("btn-export").disabled = !galerias.length;
+
+    if (!galerias.length) {
+      var vacio = document.createElement("div");
+      vacio.className = "empty";
+      var h = document.createElement("h2");
+      h.textContent = "Suelta aquí tus galerías";
+      var p1 = document.createElement("p");
+      p1.textContent = "Arrastra un archivo .json o .txt con imágenes en base64, o usa Abrir archivo.";
+      var p2 = document.createElement("p");
+      p2.textContent = "También puedes convertir imágenes sueltas con el botón Convertir imágenes.";
+      vacio.appendChild(h); vacio.appendChild(p1); vacio.appendChild(p2);
+      view.appendChild(vacio);
+      return;
+    }
+
+    galerias.forEach(function (g, i) {
+      var b = document.createElement("button");
+      b.className = "g-item";
+      b.type = "button";
+      if (i === actual) b.setAttribute("aria-current", "true");
+      var t = document.createElement("span");
+      t.textContent = g.nombre;
+      var n = document.createElement("small");
+      n.textContent = g.imagenes.length + (g.imagenes.length === 1 ? " imagen" : " imágenes");
+      b.appendChild(t); b.appendChild(n);
+      b.addEventListener("click", function () { actual = i; render(); });
+      list.appendChild(b);
+    });
+
+    var grid = document.createElement("div");
+    grid.className = "grid";
+    galerias[actual].imagenes.forEach(function (im, i) {
+      var b = document.createElement("button");
+      b.className = "thumb";
+      b.type = "button";
+      b.setAttribute("aria-label", "Ampliar " + im.nombre);
+      var img = document.createElement("img");
+      img.loading = "lazy";
+      img.alt = im.nombre;
+      img.src = im.src;
+      b.appendChild(img);
+      b.addEventListener("click", function () { abrirLightbox(i); });
+      grid.appendChild(b);
+    });
+    view.appendChild(grid);
+  }
+
+  /* ---------- Lightbox ---------- */
+
+  function mostrarLb() {
+    var imgs = galerias[actual].imagenes;
+    var im = imgs[lbIndex];
+    $("lb-img").src = im.src;
+    $("lb-img").alt = im.nombre;
+    $("lb-count").textContent = im.nombre + "  (" + (lbIndex + 1) + " de " + imgs.length + ")";
+  }
+  function abrirLightbox(i) { lbIndex = i; mostrarLb(); $("lightbox").classList.add("open"); $("lb-close").focus(); }
+  function cerrarLightbox() { $("lightbox").classList.remove("open"); $("lb-img").removeAttribute("src"); }
+  function mover(d) {
+    var n = galerias[actual].imagenes.length;
+    lbIndex = (lbIndex + d + n) % n;
+    mostrarLb();
+  }
+  $("lb-close").addEventListener("click", cerrarLightbox);
+  $("lb-prev").addEventListener("click", function () { mover(-1); });
+  $("lb-next").addEventListener("click", function () { mover(1); });
+  $("lightbox").addEventListener("click", function (e) { if (e.target === this) cerrarLightbox(); });
+  document.addEventListener("keydown", function (e) {
+    if (!$("lightbox").classList.contains("open")) return;
+    if (e.key === "Escape") cerrarLightbox();
+    else if (e.key === "ArrowLeft") mover(-1);
+    else if (e.key === "ArrowRight") mover(1);
+  });
+
+  /* ---------- Abrir archivo ---------- */
+
+  $("file-open").addEventListener("change", function () {
+    abrirArchivos(Array.from(this.files));
+    this.value = "";
+  });
+  $("open-label").addEventListener("keydown", function (e) {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("file-open").click(); }
+  });
+
+  /* ---------- Arrastrar y soltar ---------- */
+
+  ["dragenter", "dragover"].forEach(function (ev) {
+    window.addEventListener(ev, function (e) { e.preventDefault(); document.body.classList.add("dragging"); });
+  });
+  ["dragleave", "drop"].forEach(function (ev) {
+    window.addEventListener(ev, function (e) { e.preventDefault(); document.body.classList.remove("dragging"); });
+  });
+  window.addEventListener("drop", function (e) {
+    if (e.dataTransfer && e.dataTransfer.files.length) abrirArchivos(Array.from(e.dataTransfer.files));
+  });
+
+  /* ---------- Convertir imágenes ---------- */
+
+  var dlg = $("dlg");
+  $("btn-convert").addEventListener("click", function () {
+    $("status").textContent = "";
+    $("conv-name").value = "";
+    $("conv-files").value = "";
+    dlg.showModal();
+  });
+  $("conv-cancel").addEventListener("click", function () { dlg.close(); });
+  $("conv-ok").addEventListener("click", async function () {
+    var files = Array.from($("conv-files").files);
+    if (!files.length) { $("status").textContent = "Elige al menos una imagen."; return; }
+    var nombre = $("conv-name").value.trim() || "Galería " + (galerias.length + 1);
+    var imagenes = [];
+    for (var i = 0; i < files.length; i++) {
+      $("status").textContent = "Convirtiendo " + (i + 1) + " de " + files.length + "...";
+      try { imagenes.push({ nombre: files[i].name, src: await leerDataURL(files[i]) }); }
+      catch (e) { /* se omite la imagen que falle */ }
+    }
+    agregar([{ nombre: nombre, imagenes: imagenes }]);
+    dlg.close();
+  });
+
+  /* ---------- Exportar JSON ---------- */
+
+  $("btn-export").addEventListener("click", function () {
+    var salida = {
+      galerias: galerias.map(function (g) {
+        return {
+          nombre: g.nombre,
+          imagenes: g.imagenes.map(function (im) { return { nombre: im.nombre, data: im.src }; })
+        };
+      })
+    };
+    var blob = new Blob([JSON.stringify(salida)], { type: "application/json" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "galerias.json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  });
+
+  /* ---------- Inicio ---------- */
+
+  if (window.GALERIAS) agregar(normalizar(window.GALERIAS, "Galería"));
+  else render();
+})();
+</script>
+</body>
+</html>
